@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <title>Офисная библиотека</title>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: sans-serif; }
+        .book-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .book-card { border: 1px solid #ccc; padding: 15px; border-radius: 8px; }
+        .book-card.issued { background-color: #f2f2f2; border-color: #e0e0e0; }
+        .status { font-weight: bold; }
+        .status.available { color: #28a745; }
+        .status.issued { color: #dc3545; }
+    </style>
+</head>
+<body>
+<h1>Список книг в библиотеке</h1>
+<div class="book-list">
+    <#-- Перебираем список книг, который мы передали в модели -->
+    <#list books as book>
+    <div class="book-card <#if book.status == 'ISSUED'>issued</#if>">
+        <h3>${book.title}</h3>
+        <p><strong>Автор:</strong> ${book.author}</p>
+        <p><strong>Статус:</strong>
+            <#if book.status == 'AVAILABLE'>
+            <span class="status available">Доступна</span>
+            <#else>
+            <span class="status issued">Выдана</span>
+            <#-- В будущем здесь можно будет отобразить, кому именно -->
+        </#if>
+        </p>
+        <a href="/book?id=${book.id}">Подробнее...</a>
+    </div>
+</#list>
+</div>
+</body>
+</html>

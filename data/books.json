@@ -1,0 +1,29 @@
+[
+  {
+  "id": "b1",
+  "title": "Java. Полное руководство",
+  "author": "Герберт Шилдт",
+  "status": "available",
+  "imagePath": "img/java_guide.jpg",
+  "description": "Подробное руководство по Java SE 17",
+  "history": []
+},
+  {
+    "id": "b2",
+    "title": "Алгоритмы: построение и анализ",
+    "author": "Кормен и др.",
+    "status": "available",
+    "imagePath": "img/algorithms.jpg",
+    "description": "Фундаментальная книга по алгоритмам",
+    "history": []
+  },
+  {
+    "id": "b3",
+    "title": "Совершенный код",
+    "author": "Стив Макконнелл",
+    "status": "available",
+    "imagePath": "img/code_complete.jpg",
+    "description": "Практическое руководство по программированию",
+    "history": []
+  }
+]

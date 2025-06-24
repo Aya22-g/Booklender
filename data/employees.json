@@ -1,0 +1,16 @@
+[{
+  "id": "e1",
+  "name": "Элина",
+  "login": "elina",
+  "password": "1275",
+  "booksIssued": [],
+  "history": []
+},
+  {
+    "id": "e2",
+    "name": "Робин",
+    "login": "rodin",
+    "password": "1298",
+    "booksIssued": [],
+    "history": []
+  }]
