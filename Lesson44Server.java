@@ -12,62 +12,43 @@ import kg.attractor.java.server.ResponseCodes;
 import java.io.*;
 
 public class Lesson44Server extends BasicServer {
-    private final static Configuration freemarker = initFreeMarker();
+     private final static Configuration freemarker = initFreeMarker();
+    private final static BookService bookService = new BookService();
+    private final static EmployeeService employeeService = new EmployeeService();
+    private final static SessionService sessionService = new SessionService();
 
-    public Lesson44Server(String host, int port) throws IOException {
+    public BooklenderServer(String host, int port) throws IOException {
         super(host, port);
-        registerGet("/sample", this::freemarkerSampleHandler);
+        registerGet("/books", this::handleBooksList);
+        registerGet("/register", this::handleRegisterGet);
+        registerPost("/register", this::handleRegisterPost);
+        registerGet("/login", this::handleLoginGet);
+        registerPost("/login", this::handleLoginPost);
+        registerGet("/logout", this::handleLogout);
+        registerGet("/issue", this::handleIssueBook);
+        registerGet("/return", this::handleReturnBook);
     }
 
     private static Configuration initFreeMarker() {
         try {
             Configuration cfg = new Configuration(Configuration.VERSION_2_3_29);
-            // путь к каталогу в котором у нас хранятся шаблоны
-            // это может быть совершенно другой путь, чем тот, откуда сервер берёт файлы
-            // которые отправляет пользователю
             cfg.setDirectoryForTemplateLoading(new File("data"));
-
-            // прочие стандартные настройки о них читать тут
-            // https://freemarker.apache.org/docs/pgui_quickstart_createconfiguration.html
             cfg.setDefaultEncoding("UTF-8");
             cfg.setTemplateExceptionHandler(TemplateExceptionHandler.RETHROW_HANDLER);
             cfg.setLogTemplateExceptions(false);
-            cfg.setWrapUncheckedExceptions(true);
-            cfg.setFallbackOnNullLoopVariable(false);
             return cfg;
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
-
-    private void freemarkerSampleHandler(HttpExchange exchange) {
-        renderTemplate(exchange, "sample.html", getSampleDataModel());
-    }
-
+    
     protected void renderTemplate(HttpExchange exchange, String templateFile, Object dataModel) {
         try {
-            // Загружаем шаблон из файла по имени.
-            // Шаблон должен находится по пути, указанном в конфигурации
             Template temp = freemarker.getTemplate(templateFile);
-
-            // freemarker записывает преобразованный шаблон в объект класса writer
-            // а наш сервер отправляет клиенту массивы байт
-            // по этому нам надо сделать "мост" между этими двумя системами
-
-            // создаём поток, который сохраняет всё, что в него будет записано в байтовый массив
             ByteArrayOutputStream stream = new ByteArrayOutputStream();
-            // создаём объект, который умеет писать в поток и который подходит для freemarker
             try (OutputStreamWriter writer = new OutputStreamWriter(stream)) {
-
-                // обрабатываем шаблон заполняя его данными из модели
-                // и записываем результат в объект "записи"
                 temp.process(dataModel, writer);
-                writer.flush();
-
-                // получаем байтовый поток
                 var data = stream.toByteArray();
-
-                // отправляем результат клиенту
                 sendByteData(exchange, ResponseCodes.OK, ContentType.TEXT_HTML, data);
             }
         } catch (IOException | TemplateException e) {
@@ -75,9 +56,123 @@ public class Lesson44Server extends BasicServer {
         }
     }
 
-    private SampleDataModel getSampleDataModel() {
-        // возвращаем экземпляр тестовой модели-данных
-        // которую freemarker будет использовать для наполнения шаблона
-        return new SampleDataModel();
+    private void handleBooksList(HttpExchange exchange) {
+        var books = bookService.getBooks();
+        Map<String, Object> dataModel = new HashMap<>();
+        dataModel.put("books", books);
+        getCurrentUser(exchange).ifPresent(user -> dataModel.put("currentUser", user));
+        renderTemplate(exchange, "books.html", dataModel);
+    }
+    
+    private Optional<String> getSessionIdFromCookie(HttpExchange exchange) {
+        return Optional.ofNullable(exchange.getRequestHeaders().getFirst("Cookie"))
+                .flatMap(cookieHeader -> Arrays.stream(cookieHeader.split(";"))
+                        .map(String::strip)
+                        .filter(s -> s.startsWith("sessionId="))
+                        .map(s -> s.substring("sessionId=".length()))
+                        .findFirst());
+    }
+    
+    private Optional<Employee> getCurrentUser(HttpExchange exchange) {
+        return getSessionIdFromCookie(exchange)
+                .flatMap(sessionService::findSession)
+                .map(UserSession::getEmployee);
+    }
+    
+    private void handleRegisterGet(HttpExchange exchange) {
+        renderTemplate(exchange, "register.html", null);
+    }
+
+    private void handleRegisterPost(HttpExchange exchange) {
+        String raw = getBody(exchange);
+        Map<String, String> parsed = parseUrlEncoded(raw, "&");
+        String email = parsed.get("email");
+        String fullName = parsed.get("fullName");
+        String password = parsed.get("password");
+
+        boolean success = employeeService.registerEmployee(email, fullName, password);
+
+        if (success) {
+            renderTemplate(exchange, "register-success.html", null);
+        } else {
+            renderTemplate(exchange, "register-fail.html", null);
+        }
+    }
+
+    private void handleLoginGet(HttpExchange exchange) {
+        redirect302(exchange, "/login.html");
+    }
+
+    private void handleLoginPost(HttpExchange exchange) {
+        String raw = getBody(exchange);
+        Map<String, String> parsed = parseUrlEncoded(raw, "&");
+        String email = parsed.get("email");
+        String password = parsed.get("user-password");
+
+        employeeService.login(email, password)
+                .ifPresentOrElse(employee -> {
+                    UserSession session = sessionService.createSession(employee);
+                    setCookie(exchange, session.getSessionId());
+                    redirect302(exchange, "/books");
+                }, () -> {
+                    renderTemplate(exchange, "login-fail.html", null);
+                });
+    }
+
+    private void handleLogout(HttpExchange exchange) {
+        getSessionIdFromCookie(exchange).ifPresent(sessionService::removeSession);
+        exchange.getResponseHeaders().add("Set-Cookie", "sessionId=; path=/; Max-Age=0");
+        redirect302(exchange, "/login");
+    }
+
+    private void handleIssueBook(HttpExchange exchange) {
+        Optional<Employee> currentUserOpt = getCurrentUser(exchange);
+        if (currentUserOpt.isEmpty()) {
+            redirect302(exchange, "/login");
+            return;
+        }
+        
+        String query = exchange.getRequestURI().getQuery();
+        long bookId = Long.parseLong(query.substring(query.indexOf("=") + 1));
+        
+        bookService.issueBook(bookId, currentUserOpt.get().getId());
+        redirect302(exchange, "/books");
+    }
+    
+    private void handleReturnBook(HttpExchange exchange) {
+        Optional<Employee> currentUserOpt = getCurrentUser(exchange);
+        if (currentUserOpt.isEmpty()) {
+            redirect302(exchange, "/login");
+            return;
+        }
+        
+        String query = exchange.getRequestURI().getQuery();
+        long bookId = Long.parseLong(query.substring(query.indexOf("=") + 1));
+        
+        bookService.returnBook(bookId, currentUserOpt.get().getId());
+        redirect302(exchange, "/books");
+    }
+
+    protected static Map<String, String> parseUrlEncoded(String rawLines, String delimer) {
+        return Arrays.stream(rawLines.split(delimer))
+                .map(line -> line.split("=", 2))
+                .collect(Collectors.toMap(
+                        arr -> URLDecoder.decode(arr[0], StandardCharsets.UTF_8),
+                        arr -> URLDecoder.decode(arr[1], StandardCharsets.UTF_8)
+                ));
+    }
+    
+    private void setCookie(HttpExchange exchange, String sessionId) {
+        exchange.getResponseHeaders().add("Set-Cookie", "sessionId=" + sessionId + "; path=/; Max-Age=600; HttpOnly");
+    }
+
+    protected void redirect302(HttpExchange exchange, String path) {
+        try {
+            exchange.getResponseHeaders().add("Location", path);
+            exchange.sendResponseHeaders(302, -1);
+            exchange.getResponseBody().close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }
