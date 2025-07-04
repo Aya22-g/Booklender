@@ -8,7 +8,7 @@ public Book(String id, String title, String author, String imagePath, String des
     this.history = new ArrayList<>();
 }
 
-// Getters and Setters
+
 public String getId() { return id; }
 public void setId(String id) { this.id = id; }
 public String getTitle() { return title; }
